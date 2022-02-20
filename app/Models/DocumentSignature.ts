@@ -14,7 +14,7 @@ export default class DocumentSignature extends BaseModel {
     public document_id: string
 
     @column()
-    public type: 'certificate'|'signature'
+    public type: 'certificate'|'pdf'
 
     @column()
     public path: string
@@ -26,8 +26,8 @@ export default class DocumentSignature extends BaseModel {
     public certificate_password: string
 
     @column.dateTime({ autoCreate: true })
-    public createdAt: DateTime
+    public created_at: DateTime
 
     @column.dateTime({ autoCreate: true, autoUpdate: true })
-    public updatedAt: DateTime
+    public updated_at: DateTime
 }

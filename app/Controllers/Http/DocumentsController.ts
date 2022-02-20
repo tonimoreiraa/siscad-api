@@ -9,29 +9,53 @@ import fs from 'fs';
 import { PDFDocument } from 'pdf-lib';
 import sizeOf from 'image-size';
 
-/**
- * Concatenate two PDFs in Buffers
- * @param {Buffer} firstBuffer 
- * @param {Buffer} secondBuffer 
- * @returns {Buffer} - a Buffer containing the concactenated PDFs
- */
-const combinePDFBuffers = async (firstBuffer, imageBuffer) => {
-    // const newRecipe = new HummusRecipe(firstBuffer, dest);
-    // newRecipe
-    //     .endPage()
-    // .endPDF()
-    const pdfDoc = await PDFDocument.load(firstBuffer)
-    const imgDimensions = sizeOf(imageBuffer)
-    const img = await pdfDoc.embedPng(imageBuffer)
-    const imagePage = pdfDoc.insertPage(pdfDoc.getPageCount())
-    imagePage.drawImage(img, {
-        x: imagePage.getWidth() / 2 - imgDimensions.width /2,
-        y: imagePage.getHeight() / 2 - imgDimensions.height /2,
-        width: imgDimensions.width,
-        height: imgDimensions.height
+async function exportDocumentWithSignature(document: Document, signature: DocumentSignature) {
+    
+    const tempPath = Application.tmpPath('uploads')
+    const documentBuffer = fs.readFileSync(tempPath + '/' + document.path)
+    const signatureBuffer = fs.readFileSync(tempPath + '/' + signature.path)
+
+    const pdf = await PDFDocument.load(documentBuffer, {ignoreEncryption: true})
+    const signPage = pdf.insertPage(pdf.getPageCount())
+    signPage.drawText('O documento foi conferido, revisado e aceito em sua total integralidade por ' + signature.client_identifier + ' no endereço IP ' + signature.request_address + ' em ' + signature.created_at.toLocaleString() + '.', {
+        size: 12,
+        x: 25,
+        y: signPage.getHeight() - 25,
+        maxWidth: signPage.getWidth() - 50
     })
-    const pdfBytes = await pdfDoc.save()
-    return pdfBytes
+
+    if (signature.type == 'pdf') {
+        const imgDimensions: any = sizeOf(signatureBuffer)
+        const img = await pdf.embedPng(signatureBuffer)
+        signPage.drawImage(img, {
+            x: 25,
+            y: signPage.getHeight() - 60 - imgDimensions.height,
+            width: imgDimensions.width,
+            height: imgDimensions.height
+        })
+    }
+
+    var pdfBytes = await pdf.save({useObjectStreams: false})
+
+    if (signature.type == 'certificate') {
+        const tmpFilePath = `${Application.tmpPath()}/tmp-${document.id}-${signature.id}-pdf.pdf`
+        fs.writeFileSync(tmpFilePath, pdfBytes)
+        pdfBytes = await sign(fs.readFileSync(tmpFilePath), signatureBuffer, signature.certificate_password, {
+            reason: '2',
+            signerName: signature.client_identifier,
+            annotationAppearanceOptions: {
+                signatureCoordinates: {left: 0, bottom: 0, right: 0, top: 0},
+                signatureDetails: []
+            }
+        })
+
+        fs.unlinkSync(tmpFilePath)
+    }
+
+    const filePath = `${Application.tmpPath()}/tmp-${document.id}-${signature.id}.pdf`
+    fs.writeFileSync(filePath, pdfBytes)
+
+    return filePath
 }
 
 export default class DocumentsController {
@@ -70,6 +94,7 @@ export default class DocumentsController {
     async show({request, auth}) {
         const documentId = request.param('id')
         const document = await Document.findOrFail(documentId)
+        if (!auth.user && (await DocumentSignature.query().where('document_id', document.id)).length) return response.badRequest({message: 'Este protocolo já foi assinado.'})
         return auth.user ? {...document.serialize(), signatures: (await DocumentSignature.query().where('document_id', document.id)).map(d => d.serialize())} : document.serialize()
     }
 
@@ -77,6 +102,8 @@ export default class DocumentsController {
         // document
         const documentId = request.param('documentId')
         const document = await Document.findOrFail(documentId)
+
+        if ((await DocumentSignature.query().where('document_id', document.id)).length) return response.badRequest({message: 'Este protocolo já foi assinado.'})
 
         // get type of signature
         const type = request.input('type')
@@ -112,33 +139,19 @@ export default class DocumentsController {
         return signature.serialize()
     }
 
-    async downloadWithSignature({request, response, bouncer}) {
+    async downloadWithSignature({request, response}) {
         const documentId = request.param('documentId')
         const signatureId = request.param('signatureId')
 
         const document = await Document.findOrFail(documentId)
         const signature = await DocumentSignature.findOrFail(signatureId)
 
-        await bouncer.with('DocumentPolicy').authorize('use', document)
+        const pdf = await exportDocumentWithSignature(document, signature)
 
-        const tempPath = Application.tmpPath('uploads')
-
-        const cachePath = Application.tmpPath()
-        const file = `${cachePath}/cache-${document.id}-${signature.id}.pdf`
-
-        const documentBuffer = fs.readFileSync(tempPath + '/' + document.path)
-        const certificateBuffer = fs.readFileSync(tempPath + '/' + signature.path)
-
-        const pdf = signature.type === 'certificate' ? await sign(documentBuffer, certificateBuffer, signature.certificate_password, {
-            reason: '2',
-            signerName: signature.client_identifier,
-            annotationAppearanceOptions: {
-              signatureCoordinates: {left: 0, bottom: 0, right: 0, top: 0},
-              signatureDetails: []
-            },
-        }) : await combinePDFBuffers(documentBuffer, certificateBuffer)
-        fs.writeFileSync(file, pdf)
-        return response.download(file)
+        setTimeout(() => {
+            fs.unlinkSync(pdf)
+        }, 30000)
+        return response.download(pdf, true)
     }
 
     async destroy({request, bouncer}) {
