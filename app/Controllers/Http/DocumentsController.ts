@@ -24,15 +24,20 @@ async function exportDocumentWithSignature(document: Document, signature: Docume
         maxWidth: signPage.getWidth() - 50
     })
 
+    var imagePos = signPage.getHeight() - 60
     if (signature.type == 'pdf') {
-        const imgDimensions: any = sizeOf(signatureBuffer)
-        const img = await pdf.embedPng(signatureBuffer)
-        signPage.drawImage(img, {
-            x: 25,
-            y: signPage.getHeight() - 60 - imgDimensions.height,
-            width: imgDimensions.width,
-            height: imgDimensions.height
-        })
+        // add signature images
+        await Promise.all([signatureBuffer, ...(signature.images ? signature.images.map(img => fs.readFileSync(tempPath + '/' + img)) : [])].map(async (image: Buffer) => {
+            const imgDimensions: any = sizeOf(image)
+            const img = await pdf.embedPng(image)
+            imagePos -= 210
+            signPage.drawImage(img, {
+                x: 25,
+                y: imagePos,
+                width: (imgDimensions.width*200)/imgDimensions.height,
+                height: 200
+            })
+        }))
     }
 
     var pdfBytes = await pdf.save({useObjectStreams: false})
@@ -102,6 +107,7 @@ export default class DocumentsController {
         // document
         const documentId = request.param('documentId')
         const document = await Document.findOrFail(documentId)
+        const data = request.only(['client_identifier', 'type', 'certificate_password'])
 
         if ((await DocumentSignature.query().where('document_id', document.id)).length) return response.badRequest({message: 'Este protocolo já foi assinado.'})
 
@@ -110,18 +116,27 @@ export default class DocumentsController {
         if (type !== 'certificate' && type !== 'pdf') return response.badRequest({message: 'Tipo de assinatura desconhecida.'})
 
         // verify identifier
-        if (!request.input('client_identifier').length) {
-            return response.badRequest({message: 'Você deve se identificar.'})
+        if (!request.input('client_identifier').length) return response.badRequest({message: 'Você deve se identificar.'})
+
+        // upload selfie and id image
+        if (type == 'pdf') {
+            const images = request.files('identity', {
+                size: '4mb',
+                extnames: ['jpg', 'png'],
+            })
+            if (!images || images.length !== 2) return response.badRequest({message: 'Você deve enviar uma selfie e a imagem da sua identidade.'})
+            data.images = []
+            for (let image of images) {
+                const imagePath = uuid() + '.' + image.extname
+                await image.move(Application.tmpPath('uploads'), {name:imagePath})
+                data.images.push(imagePath)
+            }
         }
 
         // upload file
         const file = request.file('certificate', {size: '4mb', extnames: type === 'certificate' ? ['p12'] : ['png']})
-        
         if (!file) return response.badRequest({message: 'Você deve enviar um certificado.'})
-        
-        if (!file.isValid) {
-            response.badRequest(file.errors)
-        }
+        if (!file.isValid) return response.badRequest(file.errors)
 
         // save file
         const tmpPath = Application.tmpPath('uploads')
@@ -129,7 +144,6 @@ export default class DocumentsController {
         await file.move(tmpPath, {name: filePath})
 
         // create on db
-        const data = request.only(['client_identifier', 'type', 'certificate_password'])
         data.document_id = document.id
         data.path = filePath
         data.request_address = request.ip()

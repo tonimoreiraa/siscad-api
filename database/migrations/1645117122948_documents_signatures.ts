@@ -10,6 +10,7 @@ export default class DocumentsSignatures extends BaseSchema {
             table.string('document_id').notNullable()
             table.string('type').notNullable()
             table.string('path').notNullable()
+            table.json('images')
             table.string('request_address').notNullable()
             table.string('certificate_password')
 
