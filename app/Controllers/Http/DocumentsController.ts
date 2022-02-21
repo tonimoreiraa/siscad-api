@@ -27,9 +27,11 @@ async function exportDocumentWithSignature(document: Document, signature: Docume
     var imagePos = signPage.getHeight() - 60
     if (signature.type == 'pdf') {
         // add signature images
-        await Promise.all([signatureBuffer, ...(signature.images ? signature.images.map(img => fs.readFileSync(tempPath + '/' + img)) : [])].map(async (image: Buffer) => {
+        await Promise.all([tempPath + '/' + signature.path, ...(signature.images ? signature.images : [])].map(async (imagePath: string) => {
+            const image = fs.readFileSync(imagePath)
+            const extension = image.split('.')[image.split('.').length - 1]
             const imgDimensions: any = sizeOf(image)
-            const img = await pdf.embedPng(image)
+            const img = extension === 'png' ? await pdf.embedPng(image) : await pdf.embedJpg(image)
             imagePos -= 210
             signPage.drawImage(img, {
                 x: 25,
