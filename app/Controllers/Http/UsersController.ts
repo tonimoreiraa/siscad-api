@@ -14,21 +14,24 @@ export default class UsersController {
         return user.serialize()
     }
 
-    async destroy({request}) {
+    async destroy({request, auth, response}) {
         const userId = request.param('id')
+        if (auth.user.id !== 1 || userId === 1) return response.badRequest({message: 'Você não tem permissão.'})
         const user = await User.findOrFail(userId)
         await user.delete()
     }
 
-    async store({request}) {
+    async store({request, auth, response}) {
+        if (auth.user.id !== 1) return response.badRequest({message: 'Você não tem permissão.'})
         const data = request.only(['name', 'email', 'password'])
         const user = await User.create(data)
         return user.serialize()
     }
 
-    async changePassword({request}) {
+    async changePassword({request, auth, response}) {
         const userId = request.param('id')
         const password = request.input('password')
+        if (auth.user.id !== 1 || userId === 1) return response.badRequest({message: 'Você não tem permissão.'})
 
         const user = await User.findOrFail(userId)
         user.password = password
