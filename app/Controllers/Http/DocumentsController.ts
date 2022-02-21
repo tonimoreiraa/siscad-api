@@ -96,7 +96,7 @@ export default class DocumentsController {
         return document.serialize()
     }
 
-    async show({request, auth}) {
+    async show({request, auth, response}) {
         const documentId = request.param('id')
         const document = await Document.findOrFail(documentId)
         if (!auth.user && (await DocumentSignature.query().where('document_id', document.id)).length) return response.badRequest({message: 'Este protocolo já foi assinado.'})
