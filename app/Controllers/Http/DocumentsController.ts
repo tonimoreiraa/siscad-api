@@ -27,9 +27,9 @@ async function exportDocumentWithSignature(document: Document, signature: Docume
     var imagePos = signPage.getHeight() - 60
     if (signature.type == 'pdf') {
         // add signature images
-        await Promise.all([tempPath + '/' + signature.path, ...(signature.images ? signature.images : [])].map(async (imagePath: string) => {
-            const image = fs.readFileSync(imagePath)
-            const extension = image.split('.')[image.split('.').length - 1]
+        await Promise.all([signature.path, ...(signature.images ? signature.images : [])].map(async (imagePath: string) => {
+            const image = fs.readFileSync(tempPath + '/' + imagePath)
+            const extension = imagePath.split('.')[imagePath.split('.').length - 1]
             const imgDimensions: any = sizeOf(image)
             const img = extension === 'png' ? await pdf.embedPng(image) : await pdf.embedJpg(image)
             imagePos -= 210
@@ -136,7 +136,7 @@ export default class DocumentsController {
         }
 
         // upload file
-        const file = request.file('certificate', {size: '4mb', extnames: type === 'certificate' ? ['p12'] : ['png']})
+        const file = request.file('certificate', {size: '4mb', extnames: type === 'certificate' ? ['p12'] : ['png', 'jpg']})
         if (!file) return response.badRequest({message: 'Você deve enviar um certificado.'})
         if (!file.isValid) return response.badRequest(file.errors)
 
